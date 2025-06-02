@@ -1,10 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { CycleCount, CycleCountStatus } from '../entities/cycle-count.entity';
-import { CycleCountItem } from '../entities/cycle-count-item.entity';
-import { CreateCycleCountDto } from '../dto/create-cycle-count.dto';
-import { InventoryService } from './inventory.service';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository, Like } from "typeorm";
+import { CycleCount, CycleCountStatus } from "../entities/cycle-count.entity";
+import { CycleCountItem } from "../entities/cycle-count-item.entity";
+import { CreateCycleCountDto } from "../dto/create-cycle-count.dto";
+import { InventoryService } from "./inventory.service";
 
 @Injectable()
 export class CycleCountService {
@@ -13,15 +13,15 @@ export class CycleCountService {
     private cycleCountRepository: Repository<CycleCount>,
     @InjectRepository(CycleCountItem)
     private cycleCountItemRepository: Repository<CycleCountItem>,
-    private inventoryService: InventoryService,
+    private inventoryService: InventoryService
   ) {}
 
   async create(createCycleCountDto: CreateCycleCountDto): Promise<CycleCount> {
     const countNumber = await this.generateCountNumber();
-    
+
     const cycleCount = this.cycleCountRepository.create({
       ...createCycleCountDto,
-      countNumber
+      countNumber,
     });
 
     const savedCount = await this.cycleCountRepository.save(cycleCount);
@@ -34,18 +34,22 @@ export class CycleCountService {
 
   private async generateCountItems(cycleCount: CycleCount): Promise<void> {
     let inventoryItems;
-    
+
     if (cycleCount.locationId) {
-      inventoryItems = await this.inventoryService.findByLocation(cycleCount.locationId);
+      inventoryItems = await this.inventoryService.findByLocation(
+        cycleCount.locationId
+      );
     } else {
-      inventoryItems = await this.inventoryService.findByWarehouse(cycleCount.warehouseId);
+      inventoryItems = await this.inventoryService.findByWarehouse(
+        cycleCount.warehouseId
+      );
     }
 
-    const countItems = inventoryItems.map(item => ({
+    const countItems = inventoryItems.map((item) => ({
       cycleCountId: cycleCount.id,
       inventoryItemId: item.id,
       systemQuantity: item.quantity,
-      variance: 0
+      variance: 0,
     }));
 
     await this.cycleCountItemRepository.save(countItems);
@@ -58,14 +62,18 @@ export class CycleCountService {
     return this.cycleCountRepository.save(cycleCount);
   }
 
-  async updateCountItem(itemId: string, countedQuantity: number, notes?: string): Promise<CycleCountItem> {
+  async updateCountItem(
+    itemId: string,
+    countedQuantity: number,
+    notes?: string
+  ): Promise<CycleCountItem> {
     const countItem = await this.cycleCountItemRepository.findOne({
       where: { id: itemId },
-      relations: ['inventoryItem']
+      relations: ["inventoryItem"],
     });
 
     if (!countItem) {
-      throw new NotFoundException('Cycle count item not found');
+      throw new NotFoundException("Cycle count item not found");
     }
 
     countItem.countedQuantity = countedQuantity;
@@ -75,14 +83,17 @@ export class CycleCountService {
     return this.cycleCountItemRepository.save(countItem);
   }
 
-  async completeCount(id: string, applyAdjustments: boolean = false): Promise<CycleCount> {
+  async completeCount(
+    id: string,
+    applyAdjustments: boolean = false
+  ): Promise<CycleCount> {
     const cycleCount = await this.cycleCountRepository.findOne({
       where: { id },
-      relations: ['items', 'items.inventoryItem']
+      relations: ["items", "items.inventoryItem"],
     });
 
     if (!cycleCount) {
-      throw new NotFoundException('Cycle count not found');
+      throw new NotFoundException("Cycle count not found");
     }
 
     if (applyAdjustments) {
@@ -90,7 +101,7 @@ export class CycleCountService {
       for (const item of cycleCount.items) {
         if (item.variance !== 0 && item.countedQuantity !== null) {
           await this.inventoryService.adjustQuantity(
-            item.inventoryItemId, 
+            item.inventoryItemId,
             item.variance
           );
         }
@@ -105,17 +116,28 @@ export class CycleCountService {
 
   private async generateCountNumber(): Promise<string> {
     const date = new Date();
-    const prefix = 'CC';
-    const timestamp = date.getFullYear().toString() + 
-                     (date.getMonth() + 1).toString().padStart(2, '0');
-    
+    const prefix = "CC";
+    const timestamp =
+      date.getFullYear().toString() +
+      (date.getMonth() + 1).toString().padStart(2, "0");
+
     const count = await this.cycleCountRepository.count({
-      where: { countNumber: Like(`${prefix}${timestamp}%`) }
+      where: { countNumber: Like(`${prefix}${timestamp}%`) },
     });
-    
-    return `${prefix}${timestamp}${(count + 1).toString().padStart(4, '0')}`;
+
+    return `${prefix}${timestamp}${(count + 1).toString().padStart(4, "0")}`;
   }
 
   async findOne(id: string): Promise<CycleCount> {
     const cycleCount = await this.cycleCountRepository.findOne({
-      where:
+      where: { id },
+      relations: ["items"],
+    });
+
+    if (!cycleCount) {
+      throw new NotFoundException(`Cycle count with ID ${id} not found`);
+    }
+
+    return cycleCount;
+  }
+}
